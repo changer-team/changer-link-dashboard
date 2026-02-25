@@ -1,31 +1,50 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import ForceGraph3D from '3d-force-graph';
-import { useSearchParams } from 'next/navigation';
+
+type DashboardNode = {
+  id?: string | number;
+  title?: string;
+  eeat_score?: number | null;
+};
 
 export default function GraphView() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const searchParams = useSearchParams();
-  const clientId = searchParams.get('clientId') || 'DEMO';
+  const [clientId, setClientId] = useState('DEMO');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryClientId = params.get('clientId');
+    if (queryClientId) {
+      setClientId(queryClientId);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!containerRef.current) return;
+    let graphInstance: { _destructor?: () => void } | null = null;
 
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/graph?clientId=${clientId}`);
+        const [{ default: ForceGraph3D }, res] = await Promise.all([
+          import('3d-force-graph'),
+          fetch(`/api/graph?clientId=${clientId}`)
+        ]);
         const data = await res.json();
         
-        const Graph = ForceGraph3D()(containerRef.current)
+        graphInstance = new ForceGraph3D(containerRef.current!)
           .graphData(data)
-          .nodeLabel((node: any) => `${node.title || node.id}<br/>EEAT: ${node.eeat_score || 'N/A'}`)
+          .nodeLabel((node: DashboardNode) => {
+            const label = node.title || String(node.id ?? '');
+            const eeat = node.eeat_score ?? 'N/A';
+            return `${label}<br/>EEAT: ${eeat}`;
+          })
           .nodeAutoColorBy('id')
           .linkDirectionalArrowLength(3.5)
           .linkDirectionalArrowRelPos(1)
           .linkCurvature(0.25)
-          .linkColor((link: any) => link.is_menu_link ? '#444' : '#007bff')
+          .linkColor((link) => ((link as { is_menu_link?: boolean }).is_menu_link ? '#444' : '#007bff'))
           .linkOpacity(0.3);
 
         setLoading(false);
@@ -36,6 +55,12 @@ export default function GraphView() {
     };
 
     fetchData();
+
+    return () => {
+      if (graphInstance && typeof graphInstance._destructor === 'function') {
+        graphInstance._destructor();
+      }
+    };
   }, [clientId]);
 
   return (
